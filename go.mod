@@ -1,4 +1,4 @@
-module github.com/robfig/cron/v4
+module github.com/hanagantig/cron
 
 go 1.12
 
