@@ -51,6 +51,10 @@ func (rl *redisLocker) Lock(key string) error {
 		return exists.Err()
 	}
 
+	if exists != nil && exists.Val() == 1 {
+		return errors.New("job is locked")
+	}
+
 	res := rl.client.Set(key, "locked", lockTTL)
 	if res.Err() != nil {
 		return res.Err()
