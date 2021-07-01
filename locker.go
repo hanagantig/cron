@@ -32,7 +32,7 @@ func newRedisLocker(redisClient *redis.Client) JobLocker {
 }
 
 func (rl *redisLocker) Lock(key string) error {
-	mutex := rl.rs.NewMutex(key, redsync.SetTries(10))
+	mutex := rl.rs.NewMutex(key)
 
 	if mutex == nil {
 		return errors.New("mutex is nil")
