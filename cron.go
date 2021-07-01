@@ -330,6 +330,7 @@ func (c *Cron) lockJob(lockKey string) (context.CancelFunc, error) {
 func (c *Cron) continuousLock(ctx context.Context, lockKey string)  {
 	ticker := time.NewTicker(lockTTL / 2)
 
+	c.logger.Info( "starting continuous lock", "lockKey", lockKey)
 	for {
 		select {
 		case <-ticker.C:
@@ -338,7 +339,7 @@ func (c *Cron) continuousLock(ctx context.Context, lockKey string)  {
 		case <-ctx.Done():
 			c.logger.Info("done continuous lock", "lockKey", lockKey)
 			ticker.Stop()
-
+			c.logger.Info( "continuous lock done", "lockKey", lockKey)
 			return
 		}
 	}

@@ -709,8 +709,8 @@ func TestMultiThreadedStartAndStop(t *testing.T) {
 func TestWithLock(t *testing.T) {
 	cron := newWithDistributedLock()
 
-	cron.AddFunc("* * * * * */2", "first_job", func() { time.Sleep(3 * time.Second) })
-	cron.AddFunc("* * * * * */2", "second_job", func() { time.Sleep(3 * time.Second) })
+	cron.AddFunc("* * * * * *", "first_job", func() { time.Sleep(3 * time.Second) })
+	cron.AddFunc("* * * * * *", "second_job", func() { time.Sleep(3 * time.Second) })
 
 	cron.Start()
 	time.Sleep(1 * time.Second)
@@ -743,7 +743,7 @@ func TestWithLock(t *testing.T) {
 
 func TestContinuousLock(t *testing.T) {
 	cron := newWithDistributedLock()
-	entryID, _ := cron.AddFunc("* * * * * */2", "first_job", func() { time.Sleep(6 * time.Second) })
+	entryID, _ := cron.AddFunc("* * * * * *", "first_job", func() { time.Sleep(6 * time.Second) })
 	cron.Start()
 
 	time.Sleep(2 * time.Second)

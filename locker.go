@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"errors"
 	"github.com/go-redis/redis"
 	"github.com/go-redsync/redsync/v3"
 	redsyncredis "github.com/go-redsync/redsync/v3/redis"
@@ -31,17 +32,19 @@ func newRedisLocker(redisClient *redis.Client) JobLocker {
 }
 
 func (rl *redisLocker) Lock(key string) error {
-	mutex := rl.rs.NewMutex(key)
+	mutex := rl.rs.NewMutex(key, redsync.SetTries(1))
+
+	if mutex == nil {
+		return errors.New("mutex is nil")
+	}
 
 	if err := mutex.Lock(); err != nil {
 		return err
 	}
 
-	if mutex != nil {
-		defer func() {
-			_, _ = mutex.Unlock()
-		}()
-	}
+	defer func() {
+		_, _ = mutex.Unlock()
+	}()
 
 	exists := rl.client.Exists(key)
 	if exists.Err() != nil {
