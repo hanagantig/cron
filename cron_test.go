@@ -2,6 +2,7 @@ package cron
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -40,7 +41,7 @@ type testLocker struct {
 	mu sync.Mutex
 }
 
-func (lck *testLocker) Lock(key string) error {
+func (lck *testLocker) Lock(ctx context.Context, key string) error {
 	lck.mu.Lock()
 	defer lck.mu.Unlock()
 
@@ -51,11 +52,23 @@ func (lck *testLocker) Lock(key string) error {
 	return nil
 }
 
-func (lck *testLocker) Unlock(key string) {
+func (lck *testLocker) Extend(ctx context.Context, key string) error {
+	lck.mu.Lock()
+	defer lck.mu.Unlock()
+
+	if _, ok := lck.keys[key]; ok {
+		lck.keys[key]++
+		return nil
+	}
+	return errors.New("failed to extend job")
+}
+
+func (lck *testLocker) Unlock(ctx context.Context, key string) error {
 	lck.mu.Lock()
 	defer lck.mu.Unlock()
 
 	delete(lck.keys, key)
+	return nil
 }
 
 var locker = testLocker{
@@ -707,6 +720,7 @@ func TestMultiThreadedStartAndStop(t *testing.T) {
 }
 
 func TestWithLock(t *testing.T) {
+	ctx := context.Background()
 	cron := newWithDistributedLock()
 
 	cron.AddFunc("* * * * * *", "first_job", func() { time.Sleep(3 * time.Second) })
@@ -717,23 +731,26 @@ func TestWithLock(t *testing.T) {
 	if len(locker.keys) < 2 {
 		t.Error("not all jobs are locked")
 	}
-	err := locker.Lock("first_job"); if err == nil {
+	err := cron.jobLocker.Lock(ctx,"first_job"); if err == nil {
 		t.Error("first job is not locked")
 	}
-	err = cron.jobLocker.Lock("second_job"); if err == nil {
+	err = cron.jobLocker.Lock(ctx,"second_job"); if err == nil {
 		t.Error("second_job is not locked")
 	}
 
 	cron.jobWaiter.Wait()
 	_, ok := locker.keys["first_job"]; if ok {
-		t.Error("job should not be locked: ", err)
+		t.Error("first_job job should not be locked: ", err)
+	}
+	_, ok = locker.keys["second_job"]; if ok {
+		t.Error("second_job job should not be locked: ", err)
 	}
 
-	ctx := cron.Stop()
+	ctx = cron.Stop()
 
 	select {
 	case <-ctx.Done():
-		time.Sleep(1 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 		if len(locker.keys) > 0 {
 			t.Error("not all tasks unlocked")
 		}
@@ -743,31 +760,35 @@ func TestWithLock(t *testing.T) {
 
 func TestContinuousLock(t *testing.T) {
 	cron := newWithDistributedLock()
-	entryID, _ := cron.AddFunc("* * * * * *", "first_job", func() { time.Sleep(6 * time.Second) })
+	cron.AddFunc("* * * * * *", "first_job", func() { time.Sleep(10 * time.Second) })
 	cron.Start()
 
 	time.Sleep(2 * time.Second)
-	_, ok := locker.keys["first_job"]; if !ok {
+	firstJobCnt, ok := locker.keys["first_job"]; if !ok {
 		t.Error("first_job is not locked")
 	}
-	cron.Remove(entryID)
-
-	locker.Unlock("first_job")
-	if len(locker.keys) != 0 {
-		t.Error("first_job is not unlocked")
+	if firstJobCnt != 1 {
+		t.Error("first_job should not be extend")
 	}
 
-	time.Sleep(3 * time.Second)
-	_, ok = locker.keys["first_job"]; if ok {
-		t.Error("first_job is locked by next run")
+	time.Sleep(4 * time.Second)
+	firstJobCnt, ok = locker.keys["first_job"]; if !ok {
+		t.Error("first_job is unlocked")
+	}
+	if firstJobCnt != 2 {
+		t.Error("first_job was not extend")
 	}
 
-	time.Sleep(1 * time.Second)
-	_, ok = locker.keys["first_job"]; if !ok {
-		t.Error("first_job is not continuous locked")
-	}
+	time.Sleep(100 * time.Millisecond)
+	ctx := cron.Stop()
 
-	cron.Stop()
+	select {
+	case <-ctx.Done():
+		time.Sleep(100 * time.Millisecond)
+		if len(locker.keys) > 0 {
+			t.Error("not all tasks unlocked")
+		}
+	}
 }
 
 func TestLockMultipleCron(t *testing.T) {
@@ -781,7 +802,7 @@ func TestLockMultipleCron(t *testing.T) {
 	cr2EntryID, _ := cron2.AddFunc("* * * * * *", "first_job", func() {*c2JobCounter++; time.Sleep(3 * time.Second) })
 
 	cron1.Start()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 	_, ok := locker.keys["first_job"]; if !ok {
 		t.Error("first_job is not locked")
 	}
@@ -806,6 +827,7 @@ func TestLockMultipleCron(t *testing.T) {
 	_, ok = locker.keys["first_job"]; if !ok {
 		t.Error("first_job is not locked by other cron")
 	}
+	cron2.Remove(cr2EntryID)
 
 	time.Sleep(1 * time.Second)
 	_, ok = locker.keys["first_job"]; if ok {
@@ -813,10 +835,9 @@ func TestLockMultipleCron(t *testing.T) {
 	}
 
 	if len(locker.keys) > 0 {
-		t.Error("you have unlocked jobs")
+		t.Error("all jobs should be unlocked")
 	}
 
-	cron2.Remove(cr2EntryID)
 	cron1.Stop()
 	cron2.Stop()
 }

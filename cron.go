@@ -310,18 +310,18 @@ func (c *Cron) run() {
 }
 
 // lockJob locks job by key.
-func (c *Cron) lockJob(lockKey string) (context.CancelFunc, error) {
+func (c *Cron) lockJob(ctx context.Context, lockKey string) (context.CancelFunc, error) {
 	if c.jobLocker == nil || lockKey == "" {
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	err := c.jobLocker.Lock(lockKey)
+	nctx, cancel := context.WithCancel(ctx)
+	err := c.jobLocker.Lock(nctx, lockKey)
 	if err != nil {
 		c.logger.Error(err, "Fail to lock job", "jobKey", lockKey)
 		return nil, err
 	}
-	go c.continuousLock(ctx, lockKey)
+	go c.continuousLock(nctx, lockKey)
 
 	return cancel, nil
 }
@@ -329,17 +329,27 @@ func (c *Cron) lockJob(lockKey string) (context.CancelFunc, error) {
 // continuousLock continuously locks job until it done
 func (c *Cron) continuousLock(ctx context.Context, lockKey string)  {
 	ticker := time.NewTicker(lockTTL / 2)
+	locksCount := 0
+	lockStart := time.Now()
 
 	c.logger.Info( "starting continuous lock", "lockKey", lockKey)
 	for {
 		select {
 		case <-ticker.C:
-			c.logger.Info( "continuous lock", "lockKey", lockKey)
-			_ = c.jobLocker.Lock(lockKey)
+			err := c.jobLocker.Extend(ctx, lockKey)
+			if err != nil {
+				c.logger.Error( err, "continuous lock error", "lockKey", lockKey)
+			}
 		case <-ctx.Done():
-			c.logger.Info("done continuous lock", "lockKey", lockKey)
 			ticker.Stop()
-			c.logger.Info( "continuous lock done", "lockKey", lockKey)
+
+			c.logger.Info(
+				"continuous lock done",
+				"lockKey", lockKey,
+				"locksCount", locksCount,
+				"startTime", lockStart.Format("2006-01-02 15:04:05"),
+				"endTime", time.Now().Format("2006-01-02 15:04:05"),
+			)
 			return
 		}
 	}
@@ -347,26 +357,30 @@ func (c *Cron) continuousLock(ctx context.Context, lockKey string)  {
 
 // startJob runs the given job in a new goroutine.
 func (c *Cron) startJob(j Job, lockKey string) {
-	lockCancelFunc, err := c.lockJob(lockKey)
+	ctx := context.Background()
+	lockCancelFunc, err := c.lockJob(ctx, lockKey)
 	if err != nil {
 		return
 	}
 	c.jobWaiter.Add(1)
 	go func() {
 		defer c.jobWaiter.Done()
-		defer c.unlockJob(lockKey, lockCancelFunc)
+		defer c.unlockJob(ctx, lockKey, lockCancelFunc)
 		j.Run()
 	}()
 }
 
 // unlockJob unlocks job by key.
-func (c *Cron) unlockJob(lockKey string, lockCancelFunc context.CancelFunc) {
+func (c *Cron) unlockJob(ctx context.Context, lockKey string, lockCancelFunc context.CancelFunc) {
 	if c.jobLocker == nil || lockKey == "" {
 		return
 	}
 
 	lockCancelFunc()
-	c.jobLocker.Unlock(lockKey)
+	err := c.jobLocker.Unlock(ctx, lockKey)
+	if err != nil {
+		c.logger.Error(err, "unlock job error", "jobKey", lockKey)
+	}
 }
 
 // now returns current time in c location
