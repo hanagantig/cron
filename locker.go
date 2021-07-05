@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const lockTTL = 10 * time.Second
+const (
+	lockTTL = 10 * time.Second
+	extendMaxAttempts = 3
+)
 
 type JobLocker interface {
 	Lock(ctx context.Context, key string) error
@@ -30,13 +33,14 @@ func newRedisLocker(redisClient *redis.Client) JobLocker {
 	return &redisLocker{
 		client: redisClient,
 		rs:     rs,
+		jobMutexes: make(map[string]*redsync.Mutex),
 	}
 }
 
 func (rl *redisLocker) getMutex(key string) *redsync.Mutex {
 	m, ok := rl.jobMutexes[key]
 	if !ok || m == nil {
-		m = rl.rs.NewMutex(key, redsync.WithExpiry(lockTTL))
+		m = rl.rs.NewMutex(key+"_cronLock", redsync.WithExpiry(lockTTL))
 		rl.jobMutexes[key] = m
 	}
 
@@ -65,7 +69,7 @@ func (rl *redisLocker) Extend(ctx context.Context, key string) error {
 
 	attempts := 0
 	for _, err := mu.ExtendContext(ctx); err != nil; attempts++ {
-		if attempts == 3 {
+		if attempts == extendMaxAttempts {
 			return fmt.Errorf("mutex extend error after %v attempts: %v", attempts, err)
 		}
 	}
