@@ -336,6 +336,7 @@ func (c *Cron) continuousLock(ctx context.Context, lockKey string)  {
 	for {
 		select {
 		case <-ticker.C:
+			locksCount++
 			err := c.jobLocker.Extend(ctx, lockKey)
 			if err != nil {
 				c.logger.Error( err, "continuous lock error", "lockKey", lockKey)

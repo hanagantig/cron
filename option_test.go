@@ -2,6 +2,7 @@ package cron
 
 import (
 	"github.com/go-redis/redis"
+	"github.com/go-redsync/redsync/v4/redis/goredis"
 	"log"
 	"strings"
 	"testing"
@@ -43,7 +44,8 @@ func TestWithVerboseLogger(t *testing.T) {
 }
 
 func TestWithRedisLock(t *testing.T) {
-	c := New(WithRedisLocker(&redis.Client{}))
+	pool := goredis.NewPool(&redis.Client{})
+	c := New(WithRedsyncLocker(pool))
 	if c.jobLocker == nil {
 		t.Error("expected provided locker")
 	}

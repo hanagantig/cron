@@ -1,7 +1,7 @@
 package cron
 
 import (
-	"github.com/go-redis/redis"
+	redsyncredis "github.com/go-redsync/redsync/v4/redis"
 	"time"
 )
 
@@ -51,6 +51,6 @@ func WithDistributedLock(locker JobLocker) Option {
 	}
 }
 
-func WithRedisLocker(redisClient *redis.Client) Option  {
-	return WithDistributedLock(newRedisLocker(redisClient))
+func WithRedsyncLocker(pool redsyncredis.Pool) Option  {
+	return WithDistributedLock(newRedisLocker(pool))
 }

@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis"
 	"github.com/go-redsync/redsync/v4"
-	"github.com/go-redsync/redsync/v4/redis/goredis"
+	redsyncredis "github.com/go-redsync/redsync/v4/redis"
 	"time"
 )
 
 const (
-	lockTTL = 10 * time.Second
+	lockTTL           = 10 * time.Second
 	extendMaxAttempts = 3
 )
 
@@ -22,17 +21,14 @@ type JobLocker interface {
 }
 
 type redisLocker struct {
-	client *redis.Client
-	rs     *redsync.Redsync
-	jobMutexes map[string] *redsync.Mutex
+	rs         *redsync.Redsync
+	jobMutexes map[string]*redsync.Mutex
 }
 
-func newRedisLocker(redisClient *redis.Client) JobLocker {
-	pool := goredis.NewPool(redisClient)
+func newRedisLocker(pool redsyncredis.Pool) JobLocker {
 	rs := redsync.New(pool)
 	return &redisLocker{
-		client: redisClient,
-		rs:     rs,
+		rs:         rs,
 		jobMutexes: make(map[string]*redsync.Mutex),
 	}
 }
