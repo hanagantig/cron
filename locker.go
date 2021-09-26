@@ -14,6 +14,8 @@ const (
 	extendMaxAttempts = 3
 )
 
+// JobLocker is the interface used in this package for distributed locking a job, so that any backend
+// can be plugged in.
 type JobLocker interface {
 	Lock(ctx context.Context, key string) error
 	Extend(ctx context.Context, key string) error
@@ -43,6 +45,7 @@ func (rl *redisLocker) getMutex(key string) *redsync.Mutex {
 	return m
 }
 
+// Lock is JobLocker interface method, that implements locks for redsync distributed lock by a job unique key.
 func (rl *redisLocker) Lock(ctx context.Context, key string) error {
 	mutex := rl.getMutex(key)
 
@@ -57,6 +60,7 @@ func (rl *redisLocker) Lock(ctx context.Context, key string) error {
 	return nil
 }
 
+// Extend is JobLocker interface method, that extends lock for redsync distributed lock by a job unique key.
 func (rl *redisLocker) Extend(ctx context.Context, key string) error {
 	mu := rl.getMutex(key)
 	if mu == nil {
@@ -73,6 +77,7 @@ func (rl *redisLocker) Extend(ctx context.Context, key string) error {
 	return nil
 }
 
+// Unlock is JobLocker interface method, that removes redsync distributed lock for a job by the key.
 func (rl *redisLocker) Unlock(ctx context.Context, key string) error {
 	mu := rl.getMutex(key)
 	delete(rl.jobMutexes, key)

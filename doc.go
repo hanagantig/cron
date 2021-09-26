@@ -1,29 +1,30 @@
 /*
-Package cron implements a cron spec parser and job runner.
+Package cron implements a cron spec parser and job runner with the ability to distributed lock.
 
 Installation
 
 To download the specific tagged release, run:
 
-	go get github.com/robfig/cron/v3@v3.0.0
+	go get github.com/hanagantig/cron@v1.1.0
 
 Import it in your program as:
 
-	import "github.com/robfig/cron/v3"
+	import "github.com/hanagantig/cron"
 
-It requires Go 1.11 or later due to usage of Go Modules.
+It requires Go 1.13 or later due to usage of redsync.
 
 Usage
 
 Callers may register Funcs to be invoked on a given schedule.  Cron will run
 them in their own goroutines.
+JobKey is a unique key for a job, that used for distributed job locks.
 
 	c := cron.New()
-	c.AddFunc("30 * * * *", func() { fmt.Println("Every hour on the half hour") })
-	c.AddFunc("30 3-6,20-23 * * *", func() { fmt.Println(".. in the range 3-6am, 8-11pm") })
-	c.AddFunc("CRON_TZ=Asia/Tokyo 30 04 * * *", func() { fmt.Println("Runs at 04:30 Tokyo time every day") })
-	c.AddFunc("@hourly",      func() { fmt.Println("Every hour, starting an hour from now") })
-	c.AddFunc("@every 1h30m", func() { fmt.Println("Every hour thirty, starting an hour thirty from now") })
+	c.AddFunc("30 * * * *", "my_half_hour_job", func() { fmt.Println("Every hour on the half hour") })
+	c.AddFunc("30 3-6,20-23 * * *", "range_job", func() { fmt.Println(".. in the range 3-6am, 8-11pm") })
+	c.AddFunc("CRON_TZ=Asia/Tokyo 30 04 * * *", "tz_job", func() { fmt.Println("Runs at 04:30 Tokyo time every day") })
+	c.AddFunc("@hourly", "hourly_job", func() { fmt.Println("Every hour, starting an hour from now") })
+	c.AddFunc("@every 1h30m", "hour_thirty_job", func() { fmt.Println("Every hour thirty, starting an hour thirty from now") })
 	c.Start()
 	..
 	// Funcs are invoked in their own goroutine, asynchronously.
@@ -216,6 +217,25 @@ Activate it with a one-off logger as follows:
 		cron.WithLogger(
 			cron.VerbosePrintfLogger(log.New(os.Stdout, "cron: ", log.LstdFlags))))
 
+Distributed Locking
+
+Cron defines a JobLocker interface to manage job locking. It has the built-in JobLocker implementation based on
+redsync (Redis-based distributed mutual exclusion lock) https://github.com/go-redsync/redsync.
+Before running a job func Cron will lock given job by the key. By default it locks for 10 seconds. If job locked successfully
+Cron will also runs continuousLock method in separate goroutine and try to extend the lock each 5 second till job done.
+At the job end lock will remove.
+
+If Cron runs a job, while other Cron instance has locked the same job key, late job will skip his turn.
+
+	cron.New(
+		cron.WithRedsyncLocker(pool)
+	)
+
+There is capability to implement your own JobLocker as well, if you're not compatible with redsync lock.
+
+	cron.New(
+		cron.WithDistributedLock(locker)
+	)
 
 Implementation
 

@@ -45,12 +45,15 @@ func WithLogger(logger Logger) Option {
 	}
 }
 
+// WithDistributedLock specifies JobLocker realization for all jobs added to this cron.
 func WithDistributedLock(locker JobLocker) Option {
 	return func(c *Cron) {
 		c.jobLocker = locker
 	}
 }
 
+// WithRedsyncLocker specifies a built-in implementation of JobLocker with redsync distributed lock.
+// Redis-based distributed mutual exclusion lock https://github.com/go-redsync/redsync
 func WithRedsyncLocker(pool redsyncredis.Pool) Option  {
 	return WithDistributedLock(newRedisLocker(pool))
 }
