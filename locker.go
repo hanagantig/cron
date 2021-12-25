@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/go-redsync/redsync/v4"
 	redsyncredis "github.com/go-redsync/redsync/v4/redis"
+	"sync"
 	"time"
 )
 
@@ -25,13 +26,15 @@ type JobLocker interface {
 type redisLocker struct {
 	rs         *redsync.Redsync
 	jobMutexes map[string]*redsync.Mutex
+	mu sync.Mutex
 }
 
-func newRedisLocker(pool redsyncredis.Pool) JobLocker {
-	rs := redsync.New(pool)
+func newRedisLocker(pools ...redsyncredis.Pool) *redisLocker {
+	rs := redsync.New(pools...)
 	return &redisLocker{
 		rs:         rs,
 		jobMutexes: make(map[string]*redsync.Mutex),
+		mu: sync.Mutex{},
 	}
 }
 
@@ -47,6 +50,9 @@ func (rl *redisLocker) getMutex(key string) *redsync.Mutex {
 
 // Lock is JobLocker interface method, that implements locks for redsync distributed lock by a job unique key.
 func (rl *redisLocker) Lock(ctx context.Context, key string) error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
 	mutex := rl.getMutex(key)
 
 	if mutex == nil {
@@ -62,6 +68,9 @@ func (rl *redisLocker) Lock(ctx context.Context, key string) error {
 
 // Extend is JobLocker interface method, that extends lock for redsync distributed lock by a job unique key.
 func (rl *redisLocker) Extend(ctx context.Context, key string) error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
 	mu := rl.getMutex(key)
 	if mu == nil {
 		return errors.New("can't extend nil mutex")
@@ -79,6 +88,9 @@ func (rl *redisLocker) Extend(ctx context.Context, key string) error {
 
 // Unlock is JobLocker interface method, that removes redsync distributed lock for a job by the key.
 func (rl *redisLocker) Unlock(ctx context.Context, key string) error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
 	mu := rl.getMutex(key)
 	delete(rl.jobMutexes, key)
 

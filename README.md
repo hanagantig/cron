@@ -5,6 +5,11 @@
 
 Essentially it's a fork of [robfig cron](https://github.com/robfig/cron) with **distributed lock** feature.
 
+There is built-in implementation with redsync distributed lock
+([Redis-based distributed mutual exclusion lock](https://github.com/go-redsync/redsync)).
+
+Check the [documentation](https://pkg.go.dev/github.com/hanagantig/cron#WithRedsyncLocker) for `WithRedsyncLocker` option.
+
 ## Getting started
 To download the package, run:
 ```bash
@@ -58,7 +63,7 @@ cron.New(
 
 // with your own locker
 cron.New(
-    cron.WithDistributedLock(locker)
+    cron.WithLocks(locker)
 )
 ```
 

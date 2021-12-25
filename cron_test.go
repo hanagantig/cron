@@ -71,6 +71,21 @@ func (lck *testLocker) Unlock(ctx context.Context, key string) error {
 	return nil
 }
 
+func (lck *testLocker) KeyCount() int {
+	lck.mu.Lock()
+	defer lck.mu.Unlock()
+
+	return len(lck.keys)
+}
+
+func (lck *testLocker) GetKey(key string) (int, bool) {
+	lck.mu.Lock()
+	defer lck.mu.Unlock()
+
+	i, ok := lck.keys[key]
+	return i, ok
+}
+
 var locker = testLocker{
 	keys: make(map[string]int, 0),
 }
@@ -721,14 +736,14 @@ func TestMultiThreadedStartAndStop(t *testing.T) {
 
 func TestWithLock(t *testing.T) {
 	ctx := context.Background()
-	cron := newWithDistributedLock()
+	cron := newWithLocks()
 
 	cron.AddFunc("* * * * * *", "first_job", func() { time.Sleep(3 * time.Second) })
 	cron.AddFunc("* * * * * *", "second_job", func() { time.Sleep(3 * time.Second) })
 
 	cron.Start()
 	time.Sleep(1 * time.Second)
-	if len(locker.keys) < 2 {
+	if locker.KeyCount() < 2 {
 		t.Error("not all jobs are locked")
 	}
 	err := cron.jobLocker.Lock(ctx,"first_job"); if err == nil {
@@ -751,7 +766,7 @@ func TestWithLock(t *testing.T) {
 	select {
 	case <-ctx.Done():
 		time.Sleep(100 * time.Millisecond)
-		if len(locker.keys) > 0 {
+		if locker.KeyCount() > 0 {
 			t.Error("not all tasks unlocked")
 		}
 	}
@@ -759,12 +774,12 @@ func TestWithLock(t *testing.T) {
 }
 
 func TestContinuousLock(t *testing.T) {
-	cron := newWithDistributedLock()
+	cron := newWithLocks()
 	cron.AddFunc("* * * * * *", "first_job", func() { time.Sleep(10 * time.Second) })
 	cron.Start()
 
 	time.Sleep(2 * time.Second)
-	firstJobCnt, ok := locker.keys["first_job"]; if !ok {
+	firstJobCnt, ok := locker.GetKey("first_job"); if !ok {
 		t.Error("first_job is not locked")
 	}
 	if firstJobCnt != 1 {
@@ -772,7 +787,7 @@ func TestContinuousLock(t *testing.T) {
 	}
 
 	time.Sleep(4 * time.Second)
-	firstJobCnt, ok = locker.keys["first_job"]; if !ok {
+	firstJobCnt, ok = locker.GetKey("first_job"); if !ok {
 		t.Error("first_job is unlocked")
 	}
 	if firstJobCnt != 2 {
@@ -785,52 +800,52 @@ func TestContinuousLock(t *testing.T) {
 	select {
 	case <-ctx.Done():
 		time.Sleep(100 * time.Millisecond)
-		if len(locker.keys) > 0 {
+		if locker.KeyCount() > 0 {
 			t.Error("not all tasks unlocked")
 		}
 	}
 }
 
 func TestLockMultipleCron(t *testing.T) {
-	cron1 := newWithDistributedLock()
-	cron2 := newWithDistributedLock()
-	var c1JobCounter *int
-	var c2JobCounter *int
+	cron1 := newWithLocks()
+	cron2 := newWithLocks()
+	var c1JobCounter *int32
+	var c2JobCounter *int32
 
-	c1JobCounter,c2JobCounter = new(int),new(int)
-	cr1EntryID, _ := cron1.AddFunc("* * * * * *", "first_job", func() {*c1JobCounter++; time.Sleep(3 * time.Second) })
-	cr2EntryID, _ := cron2.AddFunc("* * * * * *", "first_job", func() {*c2JobCounter++; time.Sleep(3 * time.Second) })
+	c1JobCounter,c2JobCounter = new(int32),new(int32)
+	cr1EntryID, _ := cron1.AddFunc("* * * * * *", "first_job", func() {atomic.AddInt32(c1JobCounter, 1); time.Sleep(3 * time.Second) })
+	cr2EntryID, _ := cron2.AddFunc("* * * * * *", "first_job", func() {atomic.AddInt32(c2JobCounter, 1); time.Sleep(3 * time.Second) })
 
 	cron1.Start()
 	time.Sleep(1 * time.Second)
-	_, ok := locker.keys["first_job"]; if !ok {
+	_, ok := locker.GetKey("first_job"); if !ok {
 		t.Error("first_job is not locked")
 	}
-	if *c1JobCounter != 1 && *c2JobCounter != 0 {
+	if atomic.LoadInt32(c1JobCounter) != 1 && atomic.LoadInt32(c2JobCounter) != 0 {
 		t.Error("incorrect first_job count")
 	}
 	cron2.Start()
 	cron1.Remove(cr1EntryID)
 
 	time.Sleep(1 * time.Second)
-	if *c1JobCounter != 1 && *c2JobCounter != 0{
+	if atomic.LoadInt32(c1JobCounter) != 1 && atomic.LoadInt32(c2JobCounter) != 0{
 		t.Error("incorrect first_job count after second cron start")
 	}
-	_, ok = locker.keys["first_job"]; if !ok {
+	_, ok = locker.GetKey("first_job"); if !ok {
 		t.Error("first_job should be locked")
 	}
 
 	time.Sleep(1 * time.Second)
-	if *c1JobCounter != 1 && *c2JobCounter != 1 {
+	if atomic.LoadInt32(c1JobCounter) != 1 && atomic.LoadInt32(c2JobCounter) != 1 {
 		t.Error("second cron first_job should run")
 	}
-	_, ok = locker.keys["first_job"]; if !ok {
+	_, ok = locker.GetKey("first_job"); if !ok {
 		t.Error("first_job is not locked by other cron")
 	}
 	cron2.Remove(cr2EntryID)
 
 	time.Sleep(1 * time.Second)
-	_, ok = locker.keys["first_job"]; if ok {
+	_, ok = locker.GetKey("first_job"); if ok {
 		t.Error("first_job should be unlocked")
 	}
 
@@ -865,7 +880,7 @@ func newWithSeconds() *Cron {
 	return New(WithParser(secondParser), WithChain())
 }
 
-// newWithRedisLock returns a Cron with the redis distributed lock
-func newWithDistributedLock() *Cron {
-	return New(WithDistributedLock(&locker), WithParser(secondParser), WithChain())
+// newWithLocks returns a Cron with the given locker
+func newWithLocks() *Cron {
+	return New(WithLocks(&locker), WithParser(secondParser), WithChain())
 }

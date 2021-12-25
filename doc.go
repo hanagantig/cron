@@ -234,7 +234,7 @@ If Cron runs a job, while other Cron instance has locked the same job key, late 
 There is capability to implement your own JobLocker as well, if you're not compatible with redsync lock.
 
 	cron.New(
-		cron.WithDistributedLock(locker)
+		cron.WithLocks(locker)
 	)
 
 Implementation
