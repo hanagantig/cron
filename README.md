@@ -3,12 +3,15 @@
 
 # cron
 
-Essentially it's a fork of [robfig cron](https://github.com/robfig/cron) with **distributed lock** feature.
+*Essentially it's a fork of [robfig cron](https://github.com/robfig/cron) with **distributed lock** feature.*
+
+**This cron package is helpful when you scale your cron instances and want to run same jobs once at a time**.
 
 There is built-in implementation with redsync distributed lock
 ([Redis-based distributed mutual exclusion lock](https://github.com/go-redsync/redsync)).
 
-Check the [documentation](https://pkg.go.dev/github.com/hanagantig/cron#WithRedsyncLocker) for `WithRedsyncLocker` option.
+Moreover, you are capable to provide your own locker implementation.
+Check the [feature example](#job-distributed-lock). 
 
 ## Getting started
 To download the package, run:
@@ -21,11 +24,18 @@ Import it in your program as:
 import "github.com/hanagantig/cron"
 ```
 
+A simple usage:
+```go
+myCron := cron.New(cron.WithLogger(logger), cron.WithRedsyncLocker(redisPool))
+myCron.AddFunc("*/15 * * * *", "myTaskKey", myTaskFunc)
+myCron.Start()
+```
+
 Refer to the documentation here: http://godoc.org/github.com/hanagantig/cron
 
-### Features
-- Support for Go modules.
-- Standard cron spec parsing by default (first field is "minute"), with an easy way to opt into the seconds field (quartz-compatible). Although, note that the year field (optional in Quartz) is not supported.
+## Features
+### Spec parsers
+Standard cron spec parsing by default (first field is "minute"), with an easy way to opt into the seconds field (quartz-compatible). Although, note that the year field (optional in Quartz) is not supported.
 ```go
 // Seconds field, required
 cron.New(cron.WithSeconds())
@@ -35,26 +45,30 @@ cron.New(cron.WithParser(cron.NewParser(
 	cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )))
 ```
-- Extensible, key/value logging via an interface that complies with the https://github.com/go-logr/logr project.
-- Chain & JobWrapper types allow you to install "interceptors" to add cross-cutting behavior like the following:
+### Logging
+Extensible, key/value logging via an interface that complies with the https://github.com/go-logr/logr project.
+Configure a logger:
+```go
+cron.New(
+    cron.WithLogger(cron.VerbosePrintfLogger(logger))
+)
+```
+
+### Interceptors
+Chain & JobWrapper types allow you to install "interceptors" to add cross-cutting behavior like the following:
   - Recover any panics from jobs
   - Delay a job's execution if the previous run hasn't completed yet
   - Skip a job's execution if the previous run hasn't completed yet
   - Log each job's invocations
   - Notification when jobs are completed
-- Panic recovery and configure the panic logger
+  - Panic recovery and configure the panic logger
 ```go
 cron.New(cron.WithChain(
   cron.Recover(logger),  // or use cron.DefaultLogger
 ))
 ```
-- Configure a logger
-```go
-cron.New(
-  cron.WithLogger(cron.VerbosePrintfLogger(logger)))
-```
-- **Job distributed lock**. You can use built-in redsync locker to lock your jobs. 
-It's helpful when you scale your cron instance and want to run job once at a time.
+### Job distributed lock
+You can use built-in redsync locker to lock your jobs or provide a custom locker.
 ```go
 // with built-in redsync locker
 cron.New(
@@ -67,7 +81,8 @@ cron.New(
 )
 ```
 
-### Background - Cron spec format
+Check the [documentation](https://pkg.go.dev/github.com/hanagantig/cron#WithRedsyncLocker) for `WithRedsyncLocker` option.
+## Background - Cron spec format
 
 There are two cron spec formats in common usage:
 
