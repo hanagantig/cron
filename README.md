@@ -9,6 +9,7 @@
 
 There is built-in implementation with redsync distributed lock
 ([Redis-based distributed mutual exclusion lock](https://github.com/go-redsync/redsync)).
+> :warning: *Be careful and make sure to understand how the redlock algorithm works. Check [this discussion](http://antirez.com/news/101).*
 
 Moreover, you are capable to provide your own locker implementation.
 Check the [feature example](#job-distributed-lock). 
